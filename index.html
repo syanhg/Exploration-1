@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset Forge — Refractive Slab Generator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h1>Asset Forge</h1>
+<p class="muted">Internal tool. Turns images into refractive rounded-slab assets. Drop image files anywhere on this page.</p>
+<hr>
+
+<div id="wrap">
+
+  <div id="left">
+    <canvas id="view" width="900" height="520"></canvas>
+    <p id="dims"></p>
+    <p id="status"></p>
+
+    <fieldset>
+      <legend>Source images</legend>
+      <div class="row">
+        <input type="file" id="files" accept="image/*" multiple>
+        <button id="btnVary">Vary all</button>
+        <label>amount <input type="number" id="varyAmt" value="1" min="0" max="3" step="0.1" style="width:50px"></label>
+        <button id="btnApplyAll">Apply current settings to all</button>
+      </div>
+      <div id="items"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Export</legend>
+      <div class="row">
+        <label>Width <input type="number" id="outW" value="1600" min="16" max="8192" step="1" style="width:70px"></label>
+        <label>Height <input type="number" id="outH" value="900" min="16" max="8192" step="1" style="width:70px"></label>
+        <label>Supersample
+          <select id="outSS">
+            <option value="1">1×</option>
+            <option value="2" selected>2×</option>
+            <option value="3">3×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+        <button id="btnPng">Export PNG</button>
+        <button id="btnZip">Export all → ZIP</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Contact sheet</legend>
+      <div class="row">
+        <label>Columns <input type="number" id="sCols" value="2" min="1" max="12" style="width:48px"></label>
+        <label>Cell W <input type="number" id="sCellW" value="420" min="40" style="width:60px"></label>
+        <label>Cell H <input type="number" id="sCellH" value="300" min="40" style="width:60px"></label>
+        <label>Gap X <input type="number" id="sGapX" value="60" min="0" style="width:52px"></label>
+        <label>Gap Y <input type="number" id="sGapY" value="80" min="0" style="width:52px"></label>
+        <label>Margin <input type="number" id="sMargin" value="60" min="0" style="width:52px"></label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="sCaptions" checked> Captions</label>
+        <label>Tick length <input type="number" id="sTick" value="28" min="0" style="width:52px"></label>
+        <label>Caption size <input type="number" id="sFont" value="11" min="6" max="40" style="width:48px"></label>
+        <button id="btnSheetPreview">Preview sheet</button>
+        <button id="btnSheet">Export sheet PNG</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Notes</legend>
+      <p>Drag the canvas to orbit. <code>Shift</code>-drag to pan. Scroll to zoom.</p>
+      <p>Each loaded image keeps its own parameter set; select a row to edit it. <b>Apply current settings to all</b> propagates the active look; <b>Vary all</b> jitters rotation, gradient and smear per item so a batch does not look mechanical.</p>
+      <p>Contact-sheet cells always render with a transparent ground and composite onto the sheet background colour.</p>
+    </fieldset>
+  </div>
+
+  <div id="right">
+    <fieldset>
+      <legend>Preset</legend>
+      <div class="row">
+        <select id="preset" style="width:230px"></select>
+        <button id="btnApplyPreset">Apply</button>
+      </div>
+      <div class="row">
+        <button id="btnReset">Reset defaults</button>
+        <button id="btnSaveCfg">Save config</button>
+        <label>Load <input type="file" id="cfgFile" accept="application/json" style="width:150px"></label>
+      </div>
+      <div class="row">
+        <label>Preview supersample
+          <select id="previewSS">
+            <option value="1">1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2" selected>2×</option>
+            <option value="3">3×</option>
+          </select>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Palette &amp; output</legend>
+      <table class="ctl">
+        <tr><td class="lbl">Gradient stop 1</td><td><input type="color" id="c_col1" value="#ffb8c8"></td></tr>
+        <tr><td class="lbl">Gradient stop 2</td><td><input type="color" id="c_col2" value="#ffcf8f"></td></tr>
+        <tr><td class="lbl">Gradient stop 3</td><td><input type="color" id="c_col3" value="#b6ef9d"></td></tr>
+        <tr><td class="lbl">Background</td><td><input type="color" id="c_bg" value="#ffffff"></td></tr>
+        <tr><td class="lbl">Transparent</td><td><input type="checkbox" id="c_transparent"></td></tr>
+      </table>
+    </fieldset>
+
+    <fieldset>
+      <legend>Parameters</legend>
+      <div id="controls"></div>
+    </fieldset>
+  </div>
+
+</div>
+
+<script src="shader.js"></script>
+<script src="params.js"></script>
+<script src="zip.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

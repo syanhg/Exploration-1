@@ -1,0 +1,264 @@
+/* Frida Asset Forge — GLSL sources (WebGL2 / GLSL ES 3.00) */
+
+const VERT_SRC = `#version 300 es
+precision highp float;
+void main(){
+  // fullscreen triangle
+  vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const FRAG_SRC = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+
+out vec4 fragColor;
+
+uniform vec2      uRes;
+uniform sampler2D uTex;
+uniform float     uTexAspect;
+uniform float     uHasTex;
+
+// camera / transform
+uniform vec3  uRot;        // yaw, pitch, roll (radians)
+uniform float uFov;        // radians
+uniform float uDist;
+uniform vec2  uOffset;
+uniform float uZoom;
+
+// geometry
+uniform vec3  uBox;        // half extents
+uniform float uRadius;
+
+// optics
+uniform float uIOR;
+uniform float uDisp;
+uniform vec2  uSmearDir;
+uniform float uSmearAmt;
+uniform float uZoomAmt;
+uniform float uTwist;
+uniform int   uSamples;
+
+// color
+uniform vec3  uCol1;
+uniform vec3  uCol2;
+uniform vec3  uCol3;
+uniform float uTintAmt;
+uniform float uRimAmt;
+uniform float uRimPow;
+uniform float uGradAngle;
+uniform float uGradWrap;
+
+// surface
+uniform float uFrost;
+uniform float uBlur;
+uniform float uImgOpacity;
+uniform float uCore;
+uniform float uSpec;
+uniform float uSpecSharp;
+uniform vec3  uLightDir;
+
+// grade
+uniform float uExposure;
+uniform float uSaturation;
+uniform float uContrast;
+
+// ground
+uniform vec2  uShadowC;
+uniform vec2  uShadowR;
+uniform float uShadowAmt;
+uniform float uShadowSoft;
+
+uniform vec3  uBg;
+uniform float uTransparent;
+uniform float uGrain;
+uniform float uSeed;
+
+#define MAX_STEPS 128
+#define FAR 60.0
+
+mat3 rotMat(vec3 r){
+  float cy = cos(r.x), sy = sin(r.x);
+  float cp = cos(r.y), sp = sin(r.y);
+  float cr = cos(r.z), sr = sin(r.z);
+  mat3 Ry = mat3( cy, 0.0, -sy,  0.0, 1.0, 0.0,  sy, 0.0,  cy);
+  mat3 Rx = mat3(1.0, 0.0, 0.0,  0.0,  cp,  sp,  0.0, -sp,  cp);
+  mat3 Rz = mat3( cr,  sr, 0.0,  -sr,  cr, 0.0,  0.0, 0.0, 1.0);
+  return Rz * Rx * Ry;
+}
+
+float sdBox(vec3 p){
+  vec3 b = uBox;
+  float r = min(uRadius, min(b.x, min(b.y, b.z)));
+  vec3 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+vec3 calcNormal(vec3 p){
+  const vec2 e = vec2(1.0, -1.0) * 0.0009;
+  return normalize(
+      e.xyy * sdBox(p + e.xyy)
+    + e.yyx * sdBox(p + e.yyx)
+    + e.yxy * sdBox(p + e.yxy)
+    + e.xxx * sdBox(p + e.xxx));
+}
+
+float hash21(vec2 p){
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+// 3-stop pastel gradient sampled across the object
+vec3 gradCol(vec3 p){
+  float a = uGradAngle;
+  vec2 dir = vec2(cos(a), sin(a));
+  vec2 q = p.xy / max(uBox.xy, vec2(1e-4));
+  float g = dot(dir, q) * 0.5 + 0.5;
+  g = (uGradWrap <= 1.0) ? clamp(g, 0.0, 1.0) : fract(clamp(g, 0.0, 0.99999) * uGradWrap);
+  return g < 0.5 ? mix(uCol1, uCol2, g * 2.0)
+                 : mix(uCol2, uCol3, (g - 0.5) * 2.0);
+}
+
+// map an interior point onto the front-face image plane (cover fit)
+vec2 faceUV(vec3 p){
+  vec2 uv = p.xy / max(uBox.xy, vec2(1e-4)) * 0.5 + 0.5;
+  uv.y = 1.0 - uv.y;
+  float faceA = uBox.x / max(uBox.y, 1e-4);
+  float texA  = max(uTexAspect, 1e-4);
+  if (texA > faceA) uv.x = (uv.x - 0.5) * (faceA / texA) + 0.5;
+  else              uv.y = (uv.y - 0.5) * (texA / faceA) + 0.5;
+  return uv;
+}
+
+float exitDist(vec3 p, vec3 d){
+  float t = 0.0025;
+  for (int i = 0; i < 96; i++){
+    float s = sdBox(p + d * t);
+    if (s > -0.0009) break;
+    t += max(-s, 0.0035);
+    if (t > FAR) break;
+  }
+  return t;
+}
+
+// march the refracted ray through the slab, smearing the image along depth
+vec3 traceVolume(vec3 p, vec3 d, float fres, float jit){
+  if (uHasTex < 0.5) return vec3(1.0);
+  float T = exitDist(p, d);
+  vec3 acc = vec3(0.0);
+  int N = uSamples;
+  float lod = uBlur + fres * uFrost;
+  for (int i = 0; i < N; i++){
+    float f = (float(i) + jit) / float(N);
+    vec3 q = p + d * (T * f);
+    vec2 uv = faceUV(q);
+    float k = f - 0.5;
+    uv += uSmearDir * uSmearAmt * k;
+    vec2 c = uv - 0.5;
+    float tw = uTwist * k;
+    float ct = cos(tw), st = sin(tw);
+    c = mat2(ct, -st, st, ct) * c;
+    c *= (1.0 + uZoomAmt * k);
+    uv = c + 0.5;
+    acc += textureLod(uTex, uv, lod).rgb;
+  }
+  return acc / float(N);
+}
+
+vec3 grade(vec3 c){
+  c *= uExposure;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(l), c, uSaturation);
+  c = (c - 0.5) * uContrast + 0.5;
+  return c;
+}
+
+void main(){
+  vec2 frag = gl_FragCoord.xy;
+  vec2 uvn  = (frag * 2.0 - uRes) / uRes.y;
+
+  float tanHalf = tan(uFov * 0.5) / max(uZoom, 1e-3);
+
+  vec3 ro = vec3(uOffset, uDist);
+  vec3 rd = normalize(vec3(uvn * tanHalf, -1.0));
+
+  mat3 R  = rotMat(uRot);
+  mat3 Ri = transpose(R);
+  vec3 oro = Ri * ro;
+  vec3 ord = Ri * rd;
+
+  // ---- ground shadow (screen space blob) ----
+  vec2 sp = (uvn - uShadowC) / max(uShadowR, vec2(1e-4));
+  float sd = length(sp);
+  float shadow = 1.0 - smoothstep(1.0 - uShadowSoft, 1.0 + uShadowSoft, sd);
+  shadow = pow(clamp(shadow, 0.0, 1.0), 1.6) * uShadowAmt;
+
+  vec3  bg  = uBg * (1.0 - shadow * 0.85);
+  float bgA = 1.0;
+  if (uTransparent > 0.5){ bg = vec3(0.0); bgA = shadow * 0.85; }
+
+  // ---- raymarch the slab ----
+  float t = 0.0;
+  float hit = 0.0;
+  for (int i = 0; i < MAX_STEPS; i++){
+    vec3 p = oro + ord * t;
+    float d = sdBox(p);
+    if (d < 0.0009){ hit = 1.0; break; }
+    t += d;
+    if (t > FAR) break;
+  }
+
+  if (hit < 0.5){
+    fragColor = vec4(bg, bgA);
+    return;
+  }
+
+  vec3 p = oro + ord * t;
+  vec3 n = calcNormal(p);
+
+  float ndv  = clamp(dot(n, -ord), 0.0, 1.0);
+  float fres = pow(1.0 - ndv, uRimPow);
+
+  float jit = hash21(frag + uSeed);
+
+  // per-channel dispersion
+  float e = 1.0 / max(uIOR, 1.0001);
+  vec3 dr = refract(ord, n, e * (1.0 + uDisp));
+  vec3 dg = refract(ord, n, e);
+  vec3 db = refract(ord, n, e * (1.0 - uDisp));
+  if (dot(dr, dr) < 0.5) dr = reflect(ord, n);
+  if (dot(dg, dg) < 0.5) dg = reflect(ord, n);
+  if (dot(db, db) < 0.5) db = reflect(ord, n);
+
+  vec3 col;
+  col.r = traceVolume(p, dr, fres, jit).r;
+  col.g = traceVolume(p, dg, fres, jit).g;
+  col.b = traceVolume(p, db, fres, jit).b;
+
+  col = grade(col);
+
+  // frosted white core, then image mixed on top
+  vec3 milk = vec3(1.0);
+  col = mix(milk, col, uImgOpacity);
+  col = mix(col, milk, uCore * fres * 0.5);
+
+  // pastel gel tint through the body
+  vec3 g = gradCol(p);
+  col *= mix(vec3(1.0), g * 1.35, uTintAmt);
+
+  // chromatic rim
+  col += g * fres * uRimAmt;
+
+  // specular sheen
+  vec3 L = normalize(uLightDir);
+  vec3 h = normalize(L - ord);
+  float s = pow(clamp(dot(n, h), 0.0, 1.0), uSpecSharp);
+  col += vec3(s) * uSpec;
+
+  if (uGrain > 0.0){
+    col += (hash21(frag * 1.7 + uSeed * 3.1) - 0.5) * uGrain;
+  }
+
+  fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
