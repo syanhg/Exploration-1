@@ -37,6 +37,9 @@ uniform vec2  uSmearDir;
 uniform float uSmearAmt;
 uniform float uZoomAmt;
 uniform float uTwist;
+uniform float uAnchor;     // 0 = smear starts at the entry face, 0.5 = centred
+uniform float uTrail;      // front-weighting of the accumulation
+uniform float uDepthBlur;  // extra blur added with depth
 uniform int   uSamples;
 
 // color
@@ -147,13 +150,18 @@ vec3 traceVolume(vec3 p, vec3 d, float fres, float jit){
   if (uHasTex < 0.5) return vec3(1.0);
   float T = exitDist(p, d);
   vec3 acc = vec3(0.0);
+  float wsum = 0.0;
   int N = uSamples;
-  float lod = uBlur + fres * uFrost;
+  float base = uBlur + fres * uFrost;
   for (int i = 0; i < N; i++){
+    // f = 0 at the entry cross-section, 1 at the exit
     float f = (float(i) + jit) / float(N);
     vec3 q = p + d * (T * f);
     vec2 uv = faceUV(q);
-    float k = f - 0.5;
+
+    // Anchor the displacement at the entry face so the first cross-section is
+    // undisplaced and stays readable; the streak accumulates with depth.
+    float k = f - uAnchor;
     uv += uSmearDir * uSmearAmt * k;
     vec2 c = uv - 0.5;
     float tw = uTwist * k;
@@ -161,9 +169,13 @@ vec3 traceVolume(vec3 p, vec3 d, float fres, float jit){
     c = mat2(ct, -st, st, ct) * c;
     c *= (1.0 + uZoomAmt * k);
     uv = c + 0.5;
-    acc += textureLod(uTex, uv, lod).rgb;
+
+    // Weight the head of the trail, and let the tail blur out with depth.
+    float w = pow(1.0 - f * 0.999, uTrail);
+    acc  += textureLod(uTex, uv, base + uDepthBlur * f).rgb * w;
+    wsum += w;
   }
-  return acc / float(N);
+  return acc / max(wsum, 1e-4);
 }
 
 vec3 grade(vec3 c){

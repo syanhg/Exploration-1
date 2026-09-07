@@ -6,7 +6,8 @@ const Engine = (function () {
 
   const UNIFORMS = [
     'uRes','uTex','uTexAspect','uHasTex','uRot','uFov','uDist','uOffset','uZoom',
-    'uBox','uRadius','uIOR','uDisp','uSmearDir','uSmearAmt','uZoomAmt','uTwist','uSamples',
+    'uBox','uRadius','uIOR','uDisp','uSmearDir','uSmearAmt','uZoomAmt','uTwist',
+    'uAnchor','uTrail','uDepthBlur','uSamples',
     'uCol1','uCol2','uCol3','uTintAmt','uRimAmt','uRimPow','uGradAngle','uGradWrap',
     'uFrost','uBlur','uImgOpacity','uCore','uSpec','uSpecSharp','uLightDir',
     'uExposure','uSaturation','uContrast',
@@ -159,6 +160,9 @@ const Engine = (function () {
     gl.uniform1f(U.uSmearAmt, p.smear);
     gl.uniform1f(U.uZoomAmt, p.zoomBlur);
     gl.uniform1f(U.uTwist, p.twist * Math.PI / 180);
+    gl.uniform1f(U.uAnchor, p.anchor);
+    gl.uniform1f(U.uTrail, p.trail);
+    gl.uniform1f(U.uDepthBlur, p.depthBlur);
     gl.uniform1i(U.uSamples, p.samples | 0);
 
     gl.uniform3fv(U.uCol1, hex2rgb(p.col1));

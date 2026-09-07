@@ -8,8 +8,9 @@ const DEFAULTS = {
   zoom: 1.0, offsetX: 0, offsetY: 0,
   // optics
   ior: 1.34, disp: 0.055, samples: 28,
-  smear: 0.55, smearAngle: 0, zoomBlur: 0.30, twist: 0,
-  frost: 4.2, blur: 0.6, imgOpacity: 1.0, core: 0.35,
+  smear: 0.50, smearAngle: 0, zoomBlur: 0.28, twist: 0,
+  anchor: 0.0, trail: 2.2, depthBlur: 1.8,
+  frost: 3.2, blur: 0.20, imgOpacity: 1.0, core: 0.35,
   // colour
   col1: '#ffb8c8', col2: '#ffcf8f', col3: '#b6ef9d',
   tint: 0.55, rim: 0.55, rimPow: 2.4, gradAngle: 8, gradWrap: 1,
@@ -49,6 +50,9 @@ const SCHEMA = [
     ['smearAngle','Smear angle °',       -180,  180, 1],
     ['zoomBlur',  'Zoom streak',        -1.50, 1.50, 0.005],
     ['twist',     'Twist °',              -90,   90, 0.5],
+    ['anchor',    'Smear anchor',        0.00, 1.00, 0.01],
+    ['trail',     'Head weight',         0.00, 6.00, 0.05],
+    ['depthBlur', 'Depth blur',          0.00, 6.00, 0.05],
     ['frost',     'Frost (edge blur)',   0.00, 9.00, 0.05],
     ['blur',      'Base blur',           0.00, 9.00, 0.05],
     ['imgOpacity','Image opacity',       0.00, 1.00, 0.01],
@@ -87,8 +91,9 @@ const PRESETS = {
   'Slab — hero (ref. 1)': {
     sizeX: 1.15, sizeY: 0.70, sizeZ: 0.70, radius: 0.30,
     yaw: -28, pitch: 14, roll: -5, fov: 22, dist: 6.0, zoom: 1.0,
-    ior: 1.34, disp: 0.055, smear: 0.55, smearAngle: 0, zoomBlur: 0.30,
-    frost: 4.2, blur: 0.6, imgOpacity: 1.0, core: 0.35,
+    ior: 1.34, disp: 0.055, smear: 0.50, smearAngle: 0, zoomBlur: 0.28,
+    anchor: 0.0, trail: 2.2, depthBlur: 1.8,
+    frost: 3.2, blur: 0.20, imgOpacity: 1.0, core: 0.35,
     col1: '#ffb8c8', col2: '#ffcf8f', col3: '#b6ef9d',
     tint: 0.55, rim: 0.55, rimPow: 2.4, gradAngle: 8,
     shadow: 0.16, shadowScaleY: 0.30, spec: 0.16
@@ -97,27 +102,29 @@ const PRESETS = {
     sizeX: 1.05, sizeY: 0.60, sizeZ: 0.78, radius: 0.26,
     yaw: -14, pitch: 20, roll: 0, fov: 16, dist: 6.4, zoom: 1.0,
     ior: 1.28, disp: 0.035, smear: 0.42, smearAngle: 0, zoomBlur: 0.55,
-    frost: 3.0, blur: 0.4, imgOpacity: 1.0, core: 0.18,
+    anchor: 0.0, trail: 2.0, depthBlur: 1.5,
+    frost: 3.0, blur: 0.15, imgOpacity: 1.0, core: 0.18,
     col1: '#ffffff', col2: '#ffffff', col3: '#ffffff',
     tint: 0.12, rim: 0.22, rimPow: 3.2, gradAngle: 0,
     shadow: 0.0, spec: 0.10
   },
   'Frosted blank (no image)': {
-    imgOpacity: 0.0, core: 0.9, frost: 6.0,
+    imgOpacity: 0.0, trail: 1.0, depthBlur: 2.0, core: 0.9, frost: 6.0,
     tint: 0.95, rim: 0.8, rimPow: 1.8,
     col1: '#ffb0c4', col2: '#ffd79a', col3: '#a8e88f'
   },
   'Deep glass — heavy dispersion': {
-    ior: 1.62, disp: 0.16, samples: 40, frost: 2.0,
+    ior: 1.62, disp: 0.16, samples: 40, frost: 2.0, trail: 2.6, depthBlur: 1.4, anchor: 0.0,
     rim: 1.05, rimPow: 1.7, tint: 0.35, spec: 0.30, specSharp: 60
   },
   'Long pill — extreme smear': {
     sizeX: 1.9, sizeY: 0.52, sizeZ: 0.52, radius: 0.5,
-    smear: 1.05, zoomBlur: 0.15, samples: 44, frost: 3.4, yaw: -34, pitch: 10
+    smear: 1.05, zoomBlur: 0.15, samples: 44, frost: 3.4, yaw: -34, pitch: 10,
+    anchor: 0.0, trail: 1.5, depthBlur: 2.6
   },
   'Cube — near axis': {
     sizeX: 0.85, sizeY: 0.85, sizeZ: 0.85, radius: 0.28,
     yaw: -8, pitch: 8, roll: 0, fov: 14, dist: 6.5,
-    smear: 0.25, zoomBlur: 0.6
+    smear: 0.25, zoomBlur: 0.6, anchor: 0.0, trail: 2.4, depthBlur: 1.6
   }
 };
