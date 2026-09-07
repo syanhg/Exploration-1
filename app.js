@@ -212,15 +212,19 @@
   }
 
   function drawPreview() {
-    const W = view.clientWidth, H = view.clientHeight;
+    // Layout size comes from CSS only. Never write style.width/height back from
+    // clientWidth here: box-sizing is border-box and the canvas has a 1px border,
+    // so clientWidth is 2px smaller than the border-box width and feeding it back
+    // shrinks the canvas by 2px on every rendered frame.
+    const W = Math.max(1, view.clientWidth), H = Math.max(1, view.clientHeight);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
     const p = curParams();
     const ss = Number($('previewSS').value);
 
     Engine.render(p, Math.round(pw * ss), Math.round(ph * ss), texOf(items[active]));
-    view.width = pw; view.height = ph;
-    view.style.width = W + 'px'; view.style.height = H + 'px';
+    if (view.width !== pw) view.width = pw;
+    if (view.height !== ph) view.height = ph;
     vctx.setTransform(1, 0, 0, 1, 0, 0);
     vctx.clearRect(0, 0, pw, ph);
     if (p.transparent) checker(vctx, pw, ph);
@@ -495,5 +499,6 @@
   syncControls();
   loop();
   window.addEventListener('resize', () => { dirty = true; });
+  if (window.ResizeObserver) new ResizeObserver(() => { dirty = true; }).observe(view);
   status('Ready. Drop images anywhere, or drag on the canvas to orbit (Shift-drag to pan, scroll to zoom).');
 })();
