@@ -40,6 +40,10 @@ uniform float uTwist;
 uniform float uAnchor;     // 0 = smear starts at the entry face, 0.5 = centred
 uniform float uTrail;      // front-weighting of the accumulation
 uniform float uDepthBlur;  // extra blur added with depth
+uniform float uClarity;    // how cleanly the entry image reads through the body
+uniform float uRelief;     // heightfield parallax — gives the scene real depth
+uniform float uFog;        // aerial haze accumulated with depth
+uniform float uWorldWrap;  // 0 = clamp the image at its edge, 1 = mirror it onward
 uniform int   uSamples;
 
 // color
@@ -134,6 +138,48 @@ vec2 faceUV(vec3 p){
   return uv;
 }
 
+// Keep the interior world continuous past the edge of the photograph: clamped
+// edges streak, mirrored edges read as scenery carrying on outside the frame.
+vec2 sampleUV(vec2 uv){
+  vec2 cl = clamp(uv, 0.0, 1.0);
+  vec2 mr = abs(fract(uv * 0.5) * 2.0 - 1.0);
+  return mix(cl, mr, uWorldWrap);
+}
+
+vec3 texel(vec2 uv, float lod){
+  return textureLod(uTex, sampleUV(uv), lod).rgb;
+}
+
+// Parallax relief: walk the image's luminance as a heightfield along the
+// direction the ray drifts with depth, so foreground and background separate
+// as the camera turns instead of sitting on one flat plane.
+vec2 reliefOffset(vec2 uv, vec2 drift, float lod){
+  if (abs(uRelief) < 1e-4) return vec2(0.0);
+  const int STEPS = 8;
+  vec2 duv = drift * uRelief / float(STEPS);
+  float layer = 1.0 / float(STEPS);
+  float h = 1.0;
+  vec2 cur = uv;
+  for (int i = 0; i < STEPS; i++){
+    vec3 c = texel(cur, lod);
+    if (dot(c, vec3(0.2126, 0.7152, 0.0722)) >= h) break;
+    h -= layer;
+    cur += duv;
+  }
+  return cur - uv;
+}
+
+// displacement applied to the image plane at depth offset k
+vec2 warpUV(vec2 uv, float k){
+  uv += uSmearDir * uSmearAmt * k;
+  vec2 c = uv - 0.5;
+  float tw = uTwist * k;
+  float ct = cos(tw), st = sin(tw);
+  c = mat2(ct, -st, st, ct) * c;
+  c *= (1.0 + uZoomAmt * k);
+  return c + 0.5;
+}
+
 float exitDist(vec3 p, vec3 d){
   float t = 0.0025;
   for (int i = 0; i < 96; i++){
@@ -145,8 +191,11 @@ float exitDist(vec3 p, vec3 d){
   return t;
 }
 
-// march the refracted ray through the slab, smearing the image along depth
-vec3 traceVolume(vec3 p, vec3 d, float fres, float jit){
+// march the refracted ray through the slab, smearing the image along depth.
+// open (0..1) lifts a crisp copy of the entry cross-section back over the
+// streak so the photograph stays legible through the body.
+vec3 traceVolume(vec3 p, vec3 d, float fres, float jit, float open,
+                 vec2 par, vec3 fogCol){
   if (uHasTex < 0.5) return vec3(1.0);
   float T = exitDist(p, d);
   vec3 acc = vec3(0.0);
@@ -157,25 +206,26 @@ vec3 traceVolume(vec3 p, vec3 d, float fres, float jit){
     // f = 0 at the entry cross-section, 1 at the exit
     float f = (float(i) + jit) / float(N);
     vec3 q = p + d * (T * f);
-    vec2 uv = faceUV(q);
 
     // Anchor the displacement at the entry face so the first cross-section is
     // undisplaced and stays readable; the streak accumulates with depth.
-    float k = f - uAnchor;
-    uv += uSmearDir * uSmearAmt * k;
-    vec2 c = uv - 0.5;
-    float tw = uTwist * k;
-    float ct = cos(tw), st = sin(tw);
-    c = mat2(ct, -st, st, ct) * c;
-    c *= (1.0 + uZoomAmt * k);
-    uv = c + 0.5;
+    vec2 uv = warpUV(faceUV(q), f - uAnchor) + par;
+
+    vec3 c = texel(uv, base + uDepthBlur * f);
+    // aerial perspective — depth in the slab reads as distance in the scene
+    c = mix(c, fogCol, uFog * f);
 
     // Weight the head of the trail, and let the tail blur out with depth.
     float w = pow(1.0 - f * 0.999, uTrail);
-    acc  += textureLod(uTex, uv, base + uDepthBlur * f).rgb * w;
+    acc  += c * w;
     wsum += w;
   }
-  return acc / max(wsum, 1e-4);
+  vec3 smear = acc / max(wsum, 1e-4);
+  if (open <= 0.0) return smear;
+
+  // Undisplaced plate at the entry face, carrying only the base blur.
+  vec3 plate = texel(warpUV(faceUV(p), -uAnchor) + par, uBlur);
+  return mix(smear, plate, open);
 }
 
 vec3 grade(vec3 c){
@@ -243,24 +293,39 @@ void main(){
   if (dot(dg, dg) < 0.5) dg = reflect(ord, n);
   if (dot(db, db) < 0.5) db = reflect(ord, n);
 
+  // Clarity opens up the glass where we look through it squarely, and lets the
+  // frosted, tinted treatment keep the grazing edges.
+  float open = clamp(uClarity, 0.0, 1.0) * (1.0 - fres);
+
+  vec3 g = gradCol(p);
+
+  // How far the sampled point drifts across the image over a full traverse of
+  // the slab: the parallax rate of the interior. The relief walk is done once,
+  // on the green ray, and shared by all three channels so dispersion stays a
+  // colour fringe rather than three disagreeing worlds.
+  vec2 uv0   = faceUV(p);
+  vec2 drift = faceUV(p + dg * (uBox.z * 2.0)) - uv0;
+  vec2 par   = reliefOffset(uv0, drift, uBlur + fres * uFrost + 1.0);
+
+  vec3 fogCol = mix(vec3(1.0), g, 0.65);
+
   vec3 col;
-  col.r = traceVolume(p, dr, fres, jit).r;
-  col.g = traceVolume(p, dg, fres, jit).g;
-  col.b = traceVolume(p, db, fres, jit).b;
+  col.r = traceVolume(p, dr, fres, jit, open, par, fogCol).r;
+  col.g = traceVolume(p, dg, fres, jit, open, par, fogCol).g;
+  col.b = traceVolume(p, db, fres, jit, open, par, fogCol).b;
 
   col = grade(col);
 
   // frosted white core, then image mixed on top
   vec3 milk = vec3(1.0);
   col = mix(milk, col, uImgOpacity);
-  col = mix(col, milk, uCore * fres * 0.5);
+  col = mix(col, milk, uCore * fres * 0.5 * (1.0 - open * 0.75));
 
-  // pastel gel tint through the body
-  vec3 g = gradCol(p);
-  col *= mix(vec3(1.0), g * 1.35, uTintAmt);
+  // pastel gel tint through the body — thinned out where the image reads
+  col *= mix(vec3(1.0), g * 1.35, uTintAmt * (1.0 - open * 0.65));
 
-  // chromatic rim
-  col += g * fres * uRimAmt;
+  // chromatic rim (edge-weighted, so clarity barely touches it)
+  col += g * fres * uRimAmt * (1.0 - open * 0.30);
 
   // specular sheen
   vec3 L = normalize(uLightDir);

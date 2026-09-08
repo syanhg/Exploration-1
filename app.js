@@ -479,7 +479,8 @@
       if (cfg.params) Object.assign(globalParams, cfg.params);
       if (cfg.items) {
         cfg.items.forEach((ci, i) => {
-          if (items[i]) { items[i].params = clone(ci.params); items[i].caption = ci.caption || items[i].caption; }
+          // fill in any keys a config predating newer params doesn't carry
+          if (items[i]) { items[i].params = Object.assign(clone(DEFAULTS), clone(ci.params)); items[i].caption = ci.caption || items[i].caption; }
         });
       }
       if (active < 0) Object.assign(globalParams, cfg.params || {});
